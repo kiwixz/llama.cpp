@@ -3413,6 +3413,17 @@ static void ggml_vk_load_shaders(vk_device& device) {
             } else if (!ggml_vk_matmul_shmem_support(device, l_warptile_mmqid, true, t)) {
                 device->mul_mat_id_l[i] = false;
             }
+
+            constexpr int ubatch = 512;
+            constexpr int min_dispatch_size = 64;
+            if (ubatch / (m_wg_denoms[0] * m_wg_denoms[1]) < min_dispatch_size) {
+                device->mul_mat_m[i] = false;
+                device->mul_mat_id_m[i] = false;
+            }
+            if (ubatch / (l_wg_denoms[0] * l_wg_denoms[1]) < min_dispatch_size) {
+                device->mul_mat_l[i] = false;
+                device->mul_mat_id_l[i] = false;
+            }
         }
     }
 
