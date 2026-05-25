@@ -948,7 +948,7 @@ void common_memory_breakdown_print(const struct llama_context * ctx) {
         }
     }
     for (const auto & td : table_data) {
-        LOG_TRC(td[0].c_str(),
+        LOG_INF(td[0].c_str(),
             __func__, td[1].c_str(), td[2].c_str(), td[3].c_str(), td[4].c_str(), td[5].c_str(),
             td[6].c_str(), td[7].c_str(), td[8].c_str());
     }
