@@ -2332,11 +2332,37 @@ private:
 
     // n_tokens_cur: the number of tokens added to the batch for the current slot
     void create_checkpoint(server_slot & slot, const int64_t n_tokens_cur, llama_pos pos_min, llama_pos pos_max) {
+        // clear older checkpoints close to each others if needed
+        if (params_base.checkpoint_min_step > 0) {
+            for (auto it = slot.prompt.checkpoints.begin();;) {
+                if (slot.prompt.checkpoints.size() < (size_t) params_base.n_ctx_checkpoints) {
+                    break;
+                }
+
+                auto it_next = std::next(it, 1);
+                if (it_next == slot.prompt.checkpoints.end()) {
+                    break;
+                }
+
+                const auto & cur = *it;
+                const auto & next = *it_next;
+
+                if (next.n_tokens - cur.n_tokens < params_base.checkpoint_min_step) {
+                    SLT_INF(slot, "erasing old context checkpoint (pos_min = %d, pos_max = %d, n_tokens = %" PRId64 ", size = %.3f MiB)\n",
+                            cur.pos_min, cur.pos_max, cur.n_tokens, (float) cur.size() / 1024 / 1024);
+
+                    slot.prompt.checkpoints.erase(it);
+                }
+
+                it = it_next;
+            }
+        }
+
+        // clear any older checkpoint if needed
         while (slot.prompt.checkpoints.size() >= (size_t) params_base.n_ctx_checkpoints) {
-            // make room for the new checkpoint, if needed
             const auto & cur = slot.prompt.checkpoints.front();
 
-            SLT_WRN(slot, "erasing old context checkpoint (pos_min = %d, pos_max = %d, n_tokens = %" PRId64 ", size = %.3f MiB)\n",
+            SLT_WRN(slot, "erasing oldest context checkpoint (pos_min = %d, pos_max = %d, n_tokens = %" PRId64 ", size = %.3f MiB)\n",
                     cur.pos_min, cur.pos_max, cur.n_tokens, (float) cur.size() / 1024 / 1024);
 
             slot.prompt.checkpoints.erase(slot.prompt.checkpoints.begin());
@@ -3528,10 +3554,18 @@ private:
 
                         slot.init_sampler();
                     } else {
-                        // skip ordinary mid-prompt checkpoints, unless the batch starts a user
-                        // message or we are near the end of the prompt
-                        if (!is_user_start && !near_prompt_end) {
-                            do_checkpoint = false;
+                        if (do_checkpoint && !near_prompt_end) {
+                            llama_pos last_checkpoint = 0;
+                            if (!slot.prompt.checkpoints.empty()) {
+                                last_checkpoint = slot.prompt.checkpoints.back().n_tokens;
+                            }
+
+                            do_checkpoint = slot.prompt.n_tokens() - batch.n_tokens - last_checkpoint >= params_base.checkpoint_min_step;
+
+                            if (do_checkpoint) {
+                                SLT_DBG(slot, "%d tokens since last checkpoint at %d, creating new checkpoint during processing at position %d\n",
+                                    params_base.checkpoint_min_step, last_checkpoint, slot.prompt.n_tokens());
+                            }
                         }
                     }
 
@@ -3546,10 +3580,6 @@ private:
 
                     // do not checkpoint after mtmd chunks
                     do_checkpoint = do_checkpoint && !has_mtmd;
-
-                    // no need to create checkpoints that are too close together, unless it's the last user message
-                    do_checkpoint = do_checkpoint && (slot.prompt.checkpoints.empty() || is_last_user_message || n_tokens_start > slot.prompt.checkpoints.back().n_tokens + params_base.checkpoint_min_step);
-                    SLT_DBG(slot, "main/do_checkpoint = %s, pos_min = %d, pos_max = %d\n", do_checkpoint ? "yes" : "no", pos_min, pos_max);
 
                     // note: we create the checkpoint before calling llama_decode(), so the current batch is not
                     //       yet processed and therefore it is not part of the checkpoint.
