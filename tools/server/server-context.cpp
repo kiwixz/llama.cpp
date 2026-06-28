@@ -3560,7 +3560,7 @@ private:
                                 last_checkpoint = slot.prompt.checkpoints.back().n_tokens;
                             }
 
-                            do_checkpoint = slot.prompt.n_tokens() - batch.n_tokens - last_checkpoint >= params_base.checkpoint_min_step;
+                            do_checkpoint = n_tokens_start - last_checkpoint >= params_base.checkpoint_min_step;
 
                             if (do_checkpoint) {
                                 SLT_DBG(slot, "%d tokens since last checkpoint at %d, creating new checkpoint during processing at position %d\n",
